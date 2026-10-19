@@ -57,6 +57,7 @@ ml-image-similarity/
 ├── requirements.txt
 ├── README.md
 ├── Dockerfile
+├── .dockerignore
 └── .gitignore
 ```
 
@@ -241,6 +242,7 @@ The interface allows the user to:
 4. Retrieve the Top 5 visually similar artworks.
 5. View the similarity score for each result.
 
+
 ## Docker
 
 A Dockerfile is included for containerized deployment.
@@ -251,21 +253,29 @@ Build the Docker image:
 docker build -t ml-image-similarity .
 ```
 
-Run the application:
+### Windows PowerShell
+
+```powershell
+docker run --rm -p 8501:8501 -v "${PWD}\dataset_10k:/app/dataset_10k" ml-image-similarity
+```
+
+### Linux / macOS
 
 ```bash
-docker run --rm -p 8501:8501 -v "${PWD}\dataset_10k:/app/dataset_10k" ml-image-similarity
+docker run --rm -p 8501:8501 -v "$(pwd)/dataset_10k:/app/dataset_10k" ml-image-similarity
 ```
 
 The dataset images are intentionally excluded from the repository.
 
-For a complete containerized demo, the dataset should be made available to the container at the expected path:
+For a complete containerized demo, the dataset should be made available to the container at:
 
 ```text
 /app/dataset_10k/
 ```
 
 The pretrained OpenCLIP model weights may also be downloaded when the application first loads the model.
+```
+
 
 ## Similarity Search Process
 
