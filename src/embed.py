@@ -52,7 +52,7 @@ def generate_embeddings(image_paths):
                 image_tensor = preprocess(image)
 
                 images.append(image_tensor)
-                current_paths.append(str(image_path))
+                current_paths.append(image_path.as_posix())
 
             except Exception as e:
                 print(f"Skipping {image_path}: {e}")

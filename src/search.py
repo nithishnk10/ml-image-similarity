@@ -16,7 +16,7 @@ def load_data():
     embeddings = np.load(EMBEDDINGS_FILE)
 
     with open(PATHS_FILE, "r", encoding="utf-8") as f:
-        paths = json.load(f)
+        paths = [p.replace("\\", "/") for p in json.load(f)]
 
     return embeddings, paths
 

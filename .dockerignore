@@ -1,0 +1,7 @@
+.venv/
+dataset/
+dataset_10k/
+__pycache__/
+.git/
+query_image.jpg
+test.jpg
