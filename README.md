@@ -45,7 +45,6 @@ ml-image-similarity/
 │   ├── embed.py        # Generate embeddings for dataset images
 │   ├── search.py       # Similarity search
 │   ├── model.py        # OpenCLIP model and preprocessing
-│   ├── app.py          # Local Streamlit app
 │   └── test_model.py   # Model embedding test
 │
 ├── embeddings/
@@ -255,7 +254,7 @@ docker build -t ml-image-similarity .
 Run the application:
 
 ```bash
-docker run -p 8501:8501 ml-image-similarity
+docker run --rm -p 8501:8501 -v "${PWD}\dataset_10k:/app/dataset_10k" ml-image-similarity
 ```
 
 The dataset images are intentionally excluded from the repository.
