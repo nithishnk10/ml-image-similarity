@@ -1,94 +1,75 @@
-# 🎨 WikiArt Image Similarity Search
+# ML Image Similarity Search
 
-A visual similarity search engine for artwork images using pretrained image embeddings from OpenCLIP.
+A visual similarity search engine for WikiArt images using OpenCLIP embeddings, Qdrant vector search, and PostgreSQL metadata storage.
 
-Given a query image, the system generates its visual embedding and retrieves the Top 5 most visually similar artworks from a 10,000-image WikiArt index using cosine similarity.
+## Overview
 
-## Features
+This project takes an input image and returns the Top 5 visually similar artworks from a 10,000-image WikiArt dataset.
 
-- Pretrained OpenCLIP image embeddings
-- 10,000-image WikiArt search index
-- Batch embedding generation
-- Cosine similarity based image retrieval
-- Top 5 similar artwork results with similarity scores
-- Streamlit web demo
-- Docker support
-- CPU-compatible implementation
+The system uses:
+
+- OpenCLIP ViT-B/32 for image embeddings
+- Qdrant for vector storage and similarity search
+- PostgreSQL for image metadata
+- Streamlit for the web interface
+- Docker Compose for running the complete application stack
 
 ## Architecture
 
 ```text
                     Query Image
-                         │
-                         ▼
-                 OpenCLIP ViT-B/32
-                         │
-                         ▼
-                  Image Embedding
-                         │
-                         ▼
-              Cosine Similarity Search
-                         │
-                         ▼
-                 Top 5 Similar Images
-                         │
-                         ▼
-                  Streamlit Demo
+                         |
+                         v
+                  +-------------+
+                  |  Streamlit  |
+                  +------+------+
+                         |
+                         v
+                  +-------------+
+                  |   OpenCLIP  |
+                  |  ViT-B/32   |
+                  +------+------+
+                         |
+                    512-d embedding
+                         |
+                         v
+                  +-------------+
+                  |   Qdrant    |
+                  |  Vector DB  |
+                  +------+------+
+                         |
+                    Top-K IDs
+                         |
+                         v
+                  +-------------+
+                  | PostgreSQL  |
+                  |  Metadata   |
+                  +------+------+
+                         |
+                         v
+                    Top 5 Results
 ```
 
-## Project Structure
-
-```text
-ml-image-similarity/
-│
-├── src/
-│   ├── embed.py        # Generate embeddings for dataset images
-│   ├── search.py       # Similarity search
-│   ├── model.py        # OpenCLIP model and preprocessing
-│   └── test_model.py   # Model embedding test
-│
-├── embeddings/
-│   ├── embeddings.npy  # Precomputed 10k image embeddings
-│   └── paths.json      # Image paths corresponding to embeddings
-│
-├── demo/
-│   └── app.py          # Streamlit demo
-│
-├── requirements.txt
-├── README.md
-├── Dockerfile
-├── .dockerignore
-└── .gitignore
-```
-
-## Model
+## Embedding Model
 
 The project uses:
 
-- **Model:** OpenCLIP ViT-B/32
-- **Pretrained weights:** `laion2b_s34b_b79k`
-- **Embedding dimension:** 512
-- **Similarity metric:** Cosine similarity
+```text
+Model: ViT-B/32
+Pretrained: laion2b_s34b_b79k
+Embedding dimension: 512
+Distance metric: Cosine similarity
+```
 
-The image embeddings are L2-normalized. Therefore, cosine similarity can be efficiently calculated using the dot product.
+Embeddings are L2-normalized before being stored in Qdrant.
 
 ## Dataset
 
-The project uses a 10,000-image subset of the processed WikiArt dataset.
+The dataset consists of 10,000 processed WikiArt images.
 
-The original dataset contains approximately 30,000 processed WikiArt images. A 10,000-image subset was selected for practical local indexing and demonstration.
+The subset was selected from a larger 30,000-image dataset using a deterministic random seed (42).
 
-The dataset itself is **not included in this repository** because of its size and applicable licensing restrictions.
-
-Place the dataset in:
-
-```text
-dataset_10k/
-```
-
-with the artwork folders inside it.
-
-Example:
+Dataset structure:
 
 ```text
 dataset_10k/
@@ -96,107 +77,142 @@ dataset_10k/
 ├── Baroque/
 ├── Cubism/
 ├── Impressionism/
-├── Renaissance/
+├── Northern_Renaissance/
 └── ...
 ```
 
-The dataset should be obtained and used according to its applicable licensing and usage terms.
+The dataset is not included in the repository because of its size and image licensing restrictions.
 
-## Precomputed Embeddings
+The artwork images originate from WikiArt.org and are used for non-commercial research purposes.
 
-The repository includes the generated embedding index for the 10,000-image dataset:
-
-```text
-embeddings/
-├── embeddings.npy
-└── paths.json
-```
-
-`embeddings.npy` contains the 512-dimensional normalized embedding for each indexed image.
-
-`paths.json` contains the corresponding image paths.
-
-The actual dataset images are not included in the repository, so the dataset must be placed locally if the search or demo is to be executed.
-
-## Installation
-
-Clone the repository:
-
-```bash
-git clone https://github.com/nithishnk10/ml-image-similarity.git
-cd ml-image-similarity
-```
-
-Create a virtual environment.
-
-### Windows
-
-```powershell
-python -m venv .venv
-.venv\Scripts\activate
-```
-
-Install dependencies:
-
-```powershell
-pip install -r requirements.txt
-```
-
-## Generate Embeddings
-
-If you want to regenerate the embedding index from the dataset, place the images inside:
+## Project Structure
 
 ```text
-dataset_10k/
+ml-image-similarity/
+│
+├── src/
+│   ├── model.py
+│   ├── embed.py
+│   ├── search.py
+│   ├── database.py
+│   ├── qdrant_setup.py
+│   ├── postgres_setup.py
+│   └── test_model.py
+│
+├── demo/
+│   └── app.py
+│
+├── dataset_10k/
+│   └── ...                  # Local dataset, not tracked
+│
+├── docker-compose.yml
+├── Dockerfile
+├── requirements.txt
+├── .dockerignore
+├── .gitignore
+├── .gitattributes
+└── README.md
 ```
 
-Then run:
+## How It Works
 
-```powershell
-python src/embed.py
-```
+### 1. Generate Embeddings
 
-This generates:
+Images are loaded from the WikiArt dataset and passed through OpenCLIP.
 
 ```text
-embeddings/
-├── embeddings.npy
-└── paths.json
+Image
+  |
+  v
+Preprocessing
+  |
+  v
+OpenCLIP ViT-B/32
+  |
+  v
+512-dimensional embedding
+  |
+  v
+L2 normalization
 ```
-
-The repository already contains the generated 10,000-image embedding index, so regeneration is not required for the existing index.
-
-## Test the Model
-
-To verify that the OpenCLIP model can generate an image embedding:
-
-```powershell
-python src/test_model.py
-```
-
-The test prints the embedding shape and the first few embedding values.
-
-Expected embedding shape:
-
-```text
-(512,)
-```
-
-## Command-Line Search
 
 Run:
 
-```powershell
+```bash
+python src/embed.py
+```
+
+The generated embeddings are stored in Qdrant and the corresponding metadata is stored in PostgreSQL.
+
+### 2. Qdrant
+
+Qdrant stores the 512-dimensional image vectors.
+
+Collection:
+
+```text
+wikiart_embeddings
+```
+
+Configuration:
+
+```text
+Vector size: 512
+Distance: COSINE
+```
+
+### 3. PostgreSQL
+
+PostgreSQL stores metadata associated with each image.
+
+Schema:
+
+```text
+images
+├── id
+├── qdrant_id
+├── image_path
+├── filename
+├── artist
+└── style
+```
+
+Qdrant stores the vector while PostgreSQL stores the relational metadata.
+
+### 4. Similarity Search
+
+For a query image:
+
+```text
+Query image
+    |
+    v
+OpenCLIP embedding
+    |
+    v
+Qdrant similarity search
+    |
+    v
+Top-K vector IDs + similarity scores
+    |
+    v
+PostgreSQL metadata lookup
+    |
+    v
+Top 5 artworks
+```
+
+Run the command-line search:
+
+```bash
 python src/search.py
 ```
 
-Enter the path to a query image:
+Then provide an image path:
 
 ```text
-Enter query image path: test.jpg
+test.jpg
 ```
-
-The system returns the Top 5 most similar artworks with their cosine similarity scores.
 
 Example:
 
@@ -204,155 +220,231 @@ Example:
 Top 5 Similar Images:
 ------------------------------------------------------------
 
-1. dataset_10k/Northern_Renaissance/...
+1. dataset_10k/Northern_Renaissance/albrecht-durer_virgin-suckling-the-child-1503.jpg
+   Artist: albrecht-durer
+   Style: Northern_Renaissance
    Similarity: 0.7441
 
-2. dataset_10k/Early_Renaissance/...
+2. dataset_10k/Early_Renaissance/pietro-perugino_portrait-of-a-young-man-1.jpg
+   Artist: pietro-perugino
+   Style: Early_Renaissance
    Similarity: 0.7360
-
-3. dataset_10k/High_Renaissance/...
-   Similarity: 0.7313
-
-4. dataset_10k/Early_Renaissance/...
-   Similarity: 0.7303
-
-5. dataset_10k/Northern_Renaissance/...
-   Similarity: 0.7220
 ```
 
 ## Streamlit Demo
 
-The main demonstration application is located in:
+Run locally:
 
-```text
-demo/app.py
-```
-
-Start the demo with:
-
-```powershell
+```bash
 streamlit run demo/app.py
 ```
 
-The interface allows the user to:
+Then open:
 
-1. Upload an image.
-2. Generate its visual embedding.
-3. Search the precomputed embedding index.
-4. Retrieve the Top 5 visually similar artworks.
-5. View the similarity score for each result.
+```text
+http://localhost:8501
+```
 
+The interface allows an image to be uploaded and displays the Top 5 visually similar artworks with:
+
+- Artwork title
+- Artist
+- Similarity score
+- Artwork image
 
 ## Docker
 
-A Dockerfile is included for containerized deployment.
+The complete system can be run using Docker Compose.
 
-Build the Docker image:
+The stack contains:
+
+```text
+                 Streamlit Application
+                         |
+             +-----------+-----------+
+             |                       |
+             v                       v
+          Qdrant                PostgreSQL
+        Vector Store             Metadata
+```
+
+### Start the services
 
 ```bash
-docker build -t ml-image-similarity .
+docker compose up -d
 ```
 
-### Windows PowerShell
-
-```powershell
-docker run --rm -p 8501:8501 -v "${PWD}\dataset_10k:/app/dataset_10k" ml-image-similarity
-```
-
-### Linux / macOS
+Check the services:
 
 ```bash
-docker run --rm -p 8501:8501 -v "$(pwd)/dataset_10k:/app/dataset_10k" ml-image-similarity
+docker compose ps
 ```
 
-The dataset images are intentionally excluded from the repository.
-
-For a complete containerized demo, the dataset should be made available to the container at:
+Expected services:
 
 ```text
-/app/dataset_10k/
+image-similarity-app
+image-similarity-qdrant
+image-similarity-postgres
 ```
 
-The pretrained OpenCLIP model weights may also be downloaded when the application first loads the model.
-```
-
-
-## Similarity Search Process
+The application is available at:
 
 ```text
-Query Image
-     │
-     ▼
-Image Preprocessing
-     │
-     ▼
-OpenCLIP ViT-B/32
-     │
-     ▼
-512-D Normalized Embedding
-     │
-     ▼
-Compare Against Dataset Embeddings
-     │
-     ▼
-Cosine Similarity
-     │
-     ▼
-Sort Scores
-     │
-     ▼
-Top 5 Results
+http://localhost:8501
 ```
 
-Since both query and dataset embeddings are normalized:
+### First-Time Setup
+
+For a fresh environment, Qdrant and PostgreSQL need to be initialized and the dataset needs to be indexed before performing searches.
+
+Start Qdrant and PostgreSQL:
+
+```bash
+docker compose up -d qdrant postgres
+```
+
+Initialize the Qdrant collection:
+
+```bash
+python src/qdrant_setup.py
+```
+
+Initialize the PostgreSQL schema:
+
+```bash
+python src/postgres_setup.py
+```
+
+Generate and index the image embeddings:
+
+```bash
+python src/embed.py
+```
+
+The indexing pipeline:
+
+1. Loads images from `dataset_10k/`
+2. Generates 512-dimensional OpenCLIP embeddings
+3. L2-normalizes the embeddings
+4. Stores vectors in Qdrant
+5. Stores image metadata in PostgreSQL
+
+After indexing is complete, start the application:
+
+```bash
+docker compose up -d app
+```
+
+Then open:
 
 ```text
-cosine_similarity = query_embedding · image_embedding
+http://localhost:8501
 ```
 
-This allows efficient similarity calculation using a matrix-vector multiplication.
+### Stop the Services
 
-## Performance
+```bash
+docker compose down
+```
 
-The embedding generation was performed on a CPU-based laptop.
+## Environment Configuration
 
-For the selected 10,000-image dataset:
+When running inside Docker Compose, the application connects to the services using their Compose service names:
 
-- Images indexed: 10,000
-- Embedding dimension: 512
-- Batch size: 16
-- Embedding generation time: approximately 20 minutes on the local CPU setup
+```text
+QDRANT_HOST=qdrant
+QDRANT_PORT=6333
 
-Once the embeddings are generated, similarity search operates against the precomputed embedding matrix rather than re-embedding the entire dataset for every query.
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=image_similarity
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+```
 
-## Limitations
+When running locally, the default values are:
 
-- The current implementation performs a flat search over the complete embedding matrix.
-- The dataset images are not included in the repository.
-- The repository includes the generated 10,000-image embedding index.
-- First-time model execution requires downloading the pretrained OpenCLIP weights.
-- Retrieval quality depends on the pretrained embedding model and available dataset.
-- The implementation is intended as a lightweight demonstration rather than a production-scale vector search system.
+```text
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
 
-## Future Improvements
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=image_similarity
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=postgres
+```
 
-Possible extensions include:
+These values can be overridden using environment variables.
 
-- FAISS or another vector database for large-scale retrieval
-- GPU acceleration
-- Larger WikiArt index
-- Metadata filtering by artist or art style
-- Alternative embedding models such as DINOv2
-- Result caching
-- FastAPI backend
-- Production deployment
+## Technology Stack
 
-## Technologies
+| Component | Technology |
+|---|---|
+| Image Embeddings | OpenCLIP ViT-B/32 |
+| Vector Database | Qdrant |
+| Relational Database | PostgreSQL |
+| Similarity Metric | Cosine similarity |
+| Web Interface | Streamlit |
+| Containerization | Docker |
+| Language | Python |
 
-- Python
-- PyTorch
-- OpenCLIP
-- NumPy
-- Pillow
-- Streamlit
-- Docker
+## Requirements
+
+Install the Python dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+For local development, make sure Qdrant and PostgreSQL are running.
+
+Start them with:
+
+```bash
+docker compose up -d qdrant postgres
+```
+
+Initialize the databases:
+
+```bash
+python src/qdrant_setup.py
+python src/postgres_setup.py
+```
+
+Generate the image embeddings:
+
+```bash
+python src/embed.py
+```
+
+Run the application:
+
+```bash
+streamlit run demo/app.py
+```
+
+## Notes
+
+The current implementation indexes a deterministic 10,000-image subset for practical local development and testing.
+
+The indexing pipeline can be scaled to the complete dataset without changing the search architecture.
+
+The previous NumPy-based embedding storage was replaced by Qdrant for vector storage and PostgreSQL for metadata management.
+
+The architecture separates vector search from relational metadata storage:
+
+```text
+OpenCLIP
+   |
+   v
+Qdrant
+(vector similarity)
+   |
+   v
+PostgreSQL
+(metadata)
+```
+
+This allows the vector search layer and metadata layer to be managed independently as the system scales.

@@ -1,45 +1,69 @@
-import json
-from pathlib import Path
-
-import numpy as np
-
+from database import get_qdrant_client, get_postgres_connection
 from model import get_embedding
+from qdrant_setup import COLLECTION_NAME
 
-
-EMBEDDINGS_FILE = Path("embeddings/embeddings.npy")
-PATHS_FILE = Path("embeddings/paths.json")
 
 TOP_K = 5
 
 
-def load_data():
-    embeddings = np.load(EMBEDDINGS_FILE)
-
-    with open(PATHS_FILE, "r", encoding="utf-8") as f:
-        paths = [p.replace("\\", "/") for p in json.load(f)]
-
-    return embeddings, paths
-
-
 def search(query_image, top_k=TOP_K):
-    embeddings, paths = load_data()
+    qdrant = get_qdrant_client()
+    postgres = get_postgres_connection()
 
-    query_embedding = get_embedding(query_image)
+    try:
+        query_embedding = get_embedding(query_image)
 
-    # Embeddings are normalized, so dot product = cosine similarity
-    scores = embeddings @ query_embedding
+        search_results = qdrant.query_points(
+            collection_name=COLLECTION_NAME,
+            query=query_embedding.tolist(),
+            limit=top_k,
+        ).points
 
-    top_indices = np.argsort(scores)[::-1][:top_k]
+        if not search_results:
+            return []
 
-    results = []
+        qdrant_ids = [result.id for result in search_results]
 
-    for index in top_indices:
-        results.append({
-            "image": paths[index],
-            "similarity": float(scores[index])
-        })
+        with postgres.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT qdrant_id, image_path, filename, artist, style
+                FROM images
+                WHERE qdrant_id = ANY(%s)
+                """,
+                (qdrant_ids,)
+            )
 
-    return results
+            rows = cursor.fetchall()
+
+        metadata = {
+            row[0]: {
+                "image": row[1],
+                "filename": row[2],
+                "artist": row[3],
+                "style": row[4],
+            }
+            for row in rows
+        }
+
+        results = []
+
+        for result in search_results:
+            item = metadata.get(result.id)
+
+            if item:
+                results.append({
+                    "image": item["image"],
+                    "filename": item["filename"],
+                    "artist": item["artist"],
+                    "style": item["style"],
+                    "similarity": float(result.score),
+                })
+
+        return results
+
+    finally:
+        postgres.close()
 
 
 def main():
@@ -52,6 +76,8 @@ def main():
 
     for rank, result in enumerate(results, start=1):
         print(f"{rank}. {result['image']}")
+        print(f"   Artist: {result['artist']}")
+        print(f"   Style: {result['style']}")
         print(f"   Similarity: {result['similarity']:.4f}")
 
 

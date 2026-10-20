@@ -4,7 +4,6 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parent.parent / "src"))
 
 import streamlit as st
-from pathlib import Path
 from PIL import Image
 
 from search import search
@@ -78,8 +77,11 @@ if uploaded_file is not None:
         )
 
     # Save temporary query image
+    # Save the original uploaded file without re-encoding
     query_path = Path("query_image.jpg")
-    image.save(query_path)
+
+    with open(query_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
 
     # Search
     with st.spinner("Finding visually similar artworks..."):

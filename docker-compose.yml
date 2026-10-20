@@ -1,0 +1,45 @@
+services:
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: image-similarity-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  postgres:
+    image: postgres:17
+    container_name: image-similarity-postgres
+    environment:
+      POSTGRES_DB: image_similarity
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: image-similarity-app
+    ports:
+      - "8501:8501"
+    environment:
+      QDRANT_HOST: qdrant
+      QDRANT_PORT: 6333
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: image_similarity
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    depends_on:
+      - qdrant
+      - postgres
+    volumes:
+      - ./dataset_10k:/app/dataset_10k
+
+volumes:
+  qdrant_data:
+  postgres_data:

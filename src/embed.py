@@ -1,25 +1,18 @@
-import json
 from pathlib import Path
-
+import hashlib
 import numpy as np
 import torch
 from PIL import Image
 from tqdm import tqdm
+from qdrant_client.models import PointStruct
 
 from model import model, preprocess, DEVICE
+from database import get_qdrant_client, get_postgres_connection
+from qdrant_setup import COLLECTION_NAME
 
 
-# Dataset folder
 DATASET_DIR = Path("dataset_10k")
 
-# Output folder
-OUTPUT_DIR = Path("embeddings")
-OUTPUT_DIR.mkdir(exist_ok=True)
-
-EMBEDDINGS_FILE = OUTPUT_DIR / "embeddings.npy"
-PATHS_FILE = OUTPUT_DIR / "paths.json"
-
-# CPU-friendly batch size
 BATCH_SIZE = 16
 
 
@@ -33,51 +26,126 @@ def get_image_paths():
     ]
 
 
+def extract_metadata(image_path):
+    filename = image_path.name
+    style = image_path.parent.name
+
+    artist = filename.split("_", 1)[0] if "_" in filename else None
+
+    return {
+        "filename": filename,
+        "artist": artist,
+        "style": style,
+        "image_path": image_path.as_posix(),
+    }
+
+
+def generate_id(image_path):
+    path_string = image_path.as_posix()
+
+    hash_bytes = hashlib.sha256(
+        path_string.encode("utf-8")
+    ).digest()
+
+    return int.from_bytes(hash_bytes[:8], byteorder="big") & ((1 << 63) - 1)
+
+
 def generate_embeddings(image_paths):
+    qdrant = get_qdrant_client()
+    postgres = get_postgres_connection()
+
     all_embeddings = []
-    valid_paths = []
+    all_metadata = []
 
-    for start in tqdm(
-        range(0, len(image_paths), BATCH_SIZE),
-        desc="Generating embeddings"
-    ):
-        batch_paths = image_paths[start:start + BATCH_SIZE]
+    try:
+        with postgres.cursor() as cursor:
 
-        images = []
-        current_paths = []
+            for start in tqdm(
+                range(0, len(image_paths), BATCH_SIZE),
+                desc="Generating embeddings"
+            ):
+                batch_paths = image_paths[start:start + BATCH_SIZE]
 
-        for image_path in batch_paths:
-            try:
-                image = Image.open(image_path).convert("RGB")
-                image_tensor = preprocess(image)
+                images = []
+                metadata_batch = []
 
-                images.append(image_tensor)
-                current_paths.append(image_path.as_posix())
+                for image_path in batch_paths:
+                    try:
+                        image = Image.open(image_path).convert("RGB")
+                        image_tensor = preprocess(image)
 
-            except Exception as e:
-                print(f"Skipping {image_path}: {e}")
+                        images.append(image_tensor)
+                        metadata_batch.append(
+                            extract_metadata(image_path)
+                        )
 
-        if not images:
-            continue
+                    except Exception as e:
+                        print(f"Skipping {image_path}: {e}")
 
-        batch = torch.stack(images).to(DEVICE)
+                if not images:
+                    continue
 
-        with torch.no_grad():
-            embeddings = model.encode_image(batch)
+                batch = torch.stack(images).to(DEVICE)
 
-            # Normalize for cosine similarity
-            embeddings = embeddings / embeddings.norm(
-                dim=-1,
-                keepdim=True
-            )
+                with torch.no_grad():
+                    embeddings = model.encode_image(batch)
 
-        all_embeddings.append(embeddings.cpu().numpy())
-        valid_paths.extend(current_paths)
+                    embeddings = embeddings / embeddings.norm(
+                        dim=-1,
+                        keepdim=True
+                    )
+
+                embeddings_np = embeddings.cpu().numpy()
+
+                points = []
+
+                for embedding, metadata in zip(
+                    embeddings_np,
+                    metadata_batch
+                ):
+                    qdrant_id = generate_id(Path(metadata["image_path"]))
+
+                    points.append(
+                        PointStruct(
+                            id=qdrant_id,
+                            vector=embedding.tolist(),
+                        )
+                    )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO images
+                        (qdrant_id, image_path, filename, artist, style)
+                        VALUES (%s, %s, %s, %s, %s)
+                        ON CONFLICT (qdrant_id) DO NOTHING
+                        """,
+                        (
+                            qdrant_id,
+                            metadata["image_path"],
+                            metadata["filename"],
+                            metadata["artist"],
+                            metadata["style"],
+                        )
+                    )
+
+                    all_metadata.append(metadata)
+
+                qdrant.upsert(
+                    collection_name=COLLECTION_NAME,
+                    points=points,
+                )
+
+                postgres.commit()
+
+                all_embeddings.append(embeddings_np)
+
+    finally:
+        postgres.close()
 
     if not all_embeddings:
-        return np.empty((0, 512), dtype=np.float32), []
+        return np.empty((0, 512), dtype=np.float32)
 
-    return np.vstack(all_embeddings).astype(np.float32), valid_paths
+    return np.vstack(all_embeddings).astype(np.float32)
 
 
 def main():
@@ -89,17 +157,12 @@ def main():
         print("No images found in the dataset folder.")
         return
 
-    embeddings, valid_paths = generate_embeddings(image_paths)
-
-    np.save(EMBEDDINGS_FILE, embeddings)
-
-    with open(PATHS_FILE, "w", encoding="utf-8") as f:
-        json.dump(valid_paths, f, indent=2)
+    embeddings = generate_embeddings(image_paths)
 
     print("\nEmbedding generation complete.")
     print(f"Embeddings shape: {embeddings.shape}")
-    print(f"Saved to: {EMBEDDINGS_FILE}")
-    print(f"Paths saved to: {PATHS_FILE}")
+    print("Embeddings stored in Qdrant.")
+    print("Metadata stored in PostgreSQL.")
 
 
 if __name__ == "__main__":
